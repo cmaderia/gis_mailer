@@ -6,12 +6,11 @@
 
 # Import libraries
 import arcpy
-import pythonaddins
-import win32ui, win32con, win32gui, ctypes
 import comtypes
 import comtypes.client
 import os
 import sys
+from win32com.shell import shell, shellcon
 
 # Import ArcObjects modules
 comtypes.client.GetModule(r'C:\Program Files (x86)\ArcGIS\Desktop10.2\com\esriGeometry.olb')
@@ -31,14 +30,14 @@ comtypes.client.GetModule(r'C:\Program Files (x86)\ArcGIS\Desktop10.2\com\esriAr
 
 # METHODS
 
-# Methods to run ArcObjects (used for Clear Selection)
+# Methods to run ArcObjects (used for Clear selection, Set symbology, and Labeling)
 # courtesy of http://www.pierssen.com/arcgis10/upload/python/snippets102.py
 
 # Used to create a new object using a defined interface
 def NewObj(MyClass, MyInterface):
-  #"""Creates a new comtypes POINTER object where\n\
-  #MyClass is the class to be instantiated,\n\
-  #MyInterface is the interface to be assigned"""
+  # Creates a new comtypes POINTER object where
+  # MyClass is the class to be instantiated,
+  # MyInterface is the interface to be assigned
   from comtypes.client import CreateObject
   try:
       ptr = CreateObject(MyClass, interface=MyInterface)
@@ -48,7 +47,7 @@ def NewObj(MyClass, MyInterface):
 
 # Used to cast objects to a different interface (ex., pDoc cast to IMxDocument = pMxDoc)
 def CType(obj, interface):
-  #"""Casts obj to interface and returns comtypes POINTER or None"""
+  # Casts obj to interface and returns comtypes POINTER or None
   try:
       newobj = obj.QueryInterface(interface)
       return newobj
@@ -56,17 +55,17 @@ def CType(obj, interface):
       return None
       
 def CLSID(MyClass):
-    #Return CLSID of MyClass as string
+    # Return CLSID of MyClass as string
     return str(MyClass._reg_clsid_)
 
 # Get current ArcMap session
 def GetApp(app="ArcMap"):
-  #"""In a standalone script, retrieves the first app session found.\n\
-  #app must be 'ArcMap' (default) or 'ArcCatalog'\n\
-  #Execute GetDesktopModules() first"""
+  # In a standalone script, retrieves the first app session found.
+  # app must be 'ArcMap' (default) or 'ArcCatalog'
+  # Execute GetDesktopModules() first
   if not (app == "ArcMap" or app == "ArcCatalog"):
       print "app must be 'ArcMap' or 'ArcCatalog'"
-      return None
+      return None 
   import comtypes.gen.esriFramework as esriFramework
   import comtypes.gen.esriArcMapUI as esriArcMapUI
   import comtypes.gen.esriCatalogUI as esriCatalogUI
@@ -88,6 +87,11 @@ def GetApp(app="ArcMap"):
 # Set Adjacent parcel symbology
 def setAdjacentSymbology():
     # Cast objects
+    pApp = GetApp()
+    pDoc = pApp.Document
+    pMxDoc = CType(pDoc, comtypes.gen.esriArcMapUI.IMxDocument)
+    pMap = pMxDoc.FocusMap
+    
     pFact = CType(pApp, comtypes.gen.esriFramework.IObjectFactory)
     
     # Get Adjacents layer	
@@ -139,24 +143,24 @@ def setAdjacentSymbology():
 
     # Apply the renderer to the layer    
     pGeoFeatureLayer.Renderer = pSimpleRenderer
-    
-# Key Numbering (create fields for labels) - Adjacents layer will be used for labels
-def keyNumber():    
-    # add new field with Latitude (y) coordinate for each GPIN
-    arcpy.AddField_management(Adjacents_shp,"Latitude","DOUBLE","#","#","#","#","NULLABLE","NON_REQUIRED","#")
-    arcpy.CalculateField_management(Adjacents_shp,"Latitude","!SHAPE.extent.YMax!","PYTHON_9.3","#")
-    
-    # sort by Latitude (highest to lowest) and add KeyLabel field (1, 2, 3, etc. in order from N to S) in "Adjacent_sort"
-    arcpy.Sort_management(Adjacents_shp, Adjacents_sort, [["Latitude", "DESCENDING"]])
 
-    # add and calculate KeyLabel field
-    arcpy.AddField_management(Adjacents_sort,"KeyLabel","SHORT","#","#","#","#","NULLABLE","NON_REQUIRED","#")
-    arcpy.CalculateField_management(Adjacents_sort,"KeyLabel","!FID!+1","PYTHON_9.3","#")
+# Site = first layer; Adjacents = second layer	
+def moveLayer():
+    for lyr in arcpy.mapping.ListLayers(mxd,"",df):
+      if lyr.name == "Adjacents":
+        moveLayer = lyr
+      if lyr.name == "Site":
+        refLayer = lyr
+    arcpy.mapping.MoveLayer(df,refLayer,moveLayer,"AFTER")	
     
-    # delete Adjacents shapefile and rename Adjacents_sort to Adjacents (before adding)
-    arcpy.Delete_management(Adjacents_shp)
-    arcpy.CopyFeatures_management(Adjacents_sort, Adjacents_shp)
-    arcpy.Delete_management(Adjacents_sort)
+# Clear selection and Refresh map
+def clearRefresh():
+    pApp = GetApp()
+    pDoc = pApp.Document
+    pMxDoc = CType(pDoc, comtypes.gen.esriArcMapUI.IMxDocument)
+    pMap = pMxDoc.FocusMap
+    pMap.ClearSelection()
+    pMxDoc.ActiveView.Refresh()    
     
     
 # VARIABLES
@@ -164,28 +168,26 @@ def keyNumber():
 # Global variables:
 tax_parcels = "Tax Parcels - Mailer"
 
-site_rose = "W:/GIS_Mailer/new_mailer_toolbar/Site_color_rose.lyr"             # contains symbology (color) for Site parcel layer
-adjacent_green = "W:/GIS_Mailer/new_mailer_toolbar/Adjacent_color_green.lyr"   # contains symbology (color) for Adjacent parcel layer
-zoom_to_buffer = "W:/GIS_Mailer/new_mailer_toolbar/Site_buffer_700ft.shp"      # buffer around Site parcel(s) used to 
-
-
-#Adjacents_shp = "in_memory\\Adjacents"
-#Adjacents_add = "in_memory\\Adjacent_add"
-Adjacentsadd_sort = "W:/GIS_Mailer/new_mailer_toolbar/Adjacentadd_sort.shp"
-
 # Initialize variables
 Site_shp = ""                                                                  # Site parcel shapefile
 Site_add = ""                                                                  # new layer shapefile with new Site parcels to be added 
 Adjacents_shp = ""                                                             # Adjacent parcel shapefile
 Adjacents_add = ""                                                             # new Adjacent parcel shapefile with new Adjacent parcels to be added
-Adjacents_sort = ""
+Adjacents_sort = ""                                                            # new Adjacent parcel shapefile with new Adjacent parcels sorted by Latitude (N to S)
+zoom_to_buffer = ""                                                            # buffer around Adjacent parcel(s) used to set zoom level
 
 #----------------------------------------------------------------------
 
 
     
 # Set the workspace
-arcpy.env.workspace = "W:\GIS_Mailer\new_mailer_toolbar"
+mailerPath = shell.SHGetFolderPath(0, shellcon.CSIDL_PERSONAL, None, 0) + "\\" + "Mailer_files"
+
+if arcpy.Exists(mailerPath):
+    arcpy.env.workspace = mailerPath
+else:
+    arcpy.CreateFolder_management(shell.SHGetFolderPath(0, shellcon.CSIDL_PERSONAL, None, 0), "Mailer_files")
+    arcpy.env.workspace = mailerPath
 
 # Get access to the current mxd 
 mxd=arcpy.mapping.MapDocument("CURRENT") 
@@ -199,15 +201,15 @@ mxd.activeView = df
 # check to see if new case folder and files has already been created (for the first time); if not, then create them
 for lyr in arcpy.mapping.ListLayers(mxd,"*",df):
     if lyr.name == "Subject Parcels" or lyr.name == "Subject Parcel" or lyr.name == "Site":
-        isCopy = lyr.dataSource         # is this a copy of the original Site shapefile for this site?
+        isCopy = lyr.dataSource                                                            # is this a copy of the original Site shapefile for this site?
        
-        if "Case" not in isCopy and "case" not in isCopy:
-	    Site_shp = "W:/GIS_Mailer/new_mailer_toolbar/Site.shp"                         # Site parcel shapefile
-            Site_add = "W:/GIS_Mailer/new_mailer_toolbar/Site_add.shp"                     # new layer shapefile with new Site parcels to be added 
-            Adjacents_shp = "W:/GIS_Mailer/new_mailer_toolbar/Adjacents.shp"               # Adjacent parcel shapefile
-	    Adjacents_add = "W:/GIS_Mailer/new_mailer_toolbar/Adjacent_add.shp"            # new Adjacent parcel shapefile with new Adjacent parcels to be added
-	    Adjacents_sort = "W:/GIS_Mailer/new_mailer_toolbar/Adjacent_sort.shp"          # new Adjacent parcel shapefile with new Adjacent parcels sorted by Latitude (N to S)
-	    
+        if "Case" not in isCopy and "case" not in isCopy:                                  # check to see if the directory containing the layers contains any variation of "case"; if not, then save it in memory
+	    Site_shp = mailerPath + "\\Site.shp"                                           # Site parcel shapefile
+            Site_add = mailerPath + "\\Site_add.shp"                                       # new layer shapefile with new Site parcels to be added 
+            Adjacents_shp = mailerPath + "\\Adjacents.shp"                                 # Adjacent parcel shapefile
+	    Adjacents_add = mailerPath + "\\Adjacent_add.shp"                              # new Adjacent parcel shapefile with new Adjacent parcels to be added
+	    Adjacents_sort = mailerPath + "\\Adjacent_sort.shp"                            # new Adjacent parcel shapefile with new Adjacent parcels sorted by Latitude (N to S)
+	    zoom_to_buffer = mailerPath + "\\zoom_buffer.shp"                              # buffer around Adjacent parcel(s) used to set zoom level
 	    
 	else:
 	    dirNew = lyr.workspacePath                               # if "case" is in the directory path, then save it to that directory
@@ -216,7 +218,7 @@ for lyr in arcpy.mapping.ListLayers(mxd,"*",df):
             Adjacents_shp = dirNew + "\\Adjacents.shp"               # Adjacent parcel shapefile
 	    Adjacents_add = dirNew + "\\Adjacent_add.shp"            # new Adjacent parcel shapefile with new Adjacent parcels to be added
 	    Adjacents_sort = dirNew + "\\Adjacent_sort.shp"          # new Adjacent parcel shapefile with new Adjacent parcels sorted by Latitude (N to S)
-	    
+	    zoom_to_buffer = dirNew + "\\zoom_buffer.shp"            # buffer around Adjacent parcel(s) used to set zoom level
 
 
 # Get user input for parameters:  Add and Remove adjacent parcel check boxes (boolean, T/F)
@@ -230,12 +232,7 @@ addCheck = arcpy.GetParameterAsText(1)
 if not (str(removeCheck) == 'true') and not (str(addCheck) == 'true'):
 
     # Clear any selections
-    pApp = GetApp()
-    pDoc = pApp.Document
-    pMxDoc = CType(pDoc, comtypes.gen.esriArcMapUI.IMxDocument)
-    pMap = pMxDoc.FocusMap
-    pMap.ClearSelection()
-    pMxDoc.ActiveView.Refresh()  
+    clearRefresh()  
     
     # Delete previous Adjacents shapefile and buffer
     arcpy.Delete_management(Adjacents_shp)
@@ -253,22 +250,12 @@ if not (str(removeCheck) == 'true') and not (str(addCheck) == 'true'):
      
     # Write the selected features to a new feature class (shapefile) and clear selection from Tax Parcels layer
     arcpy.CopyFeatures_management(tax_parcels, Adjacents_shp, "", "0", "0", "0")
-    
-    pMap.ClearSelection()
-    pMxDoc.ActiveView.Refresh()  
-    
-    # Create new fields for labeling (key numbering) - see function above
-    keyNumber()
+    clearRefresh() 
 
     # Add Adjacents shapefile to current map document, make it the second layer from the top, and select it
     adjacentParcel = arcpy.mapping.Layer(Adjacents_shp)
     arcpy.mapping.AddLayer(df, adjacentParcel, "TOP")
-    for lyr in arcpy.mapping.ListLayers(mxd,"",df):
-      if lyr.name == "Adjacents":
-        moveLayer = lyr
-      if lyr.name == "Site":
-        refLayer = lyr
-    arcpy.mapping.MoveLayer(df,refLayer,moveLayer,"AFTER")
+    moveLayer()
     
     # Set parcel color to Green -- see ArcObjects function above
     setAdjacentSymbology()
@@ -280,6 +267,10 @@ if not (str(removeCheck) == 'true') and not (str(addCheck) == 'true'):
     df.extent = ext
     
     # Clear selection (using ArcObjects) and refresh map
+    pApp = GetApp()
+    pDoc = pApp.Document
+    pMxDoc = CType(pDoc, comtypes.gen.esriArcMapUI.IMxDocument)
+    pMap = pMxDoc.FocusMap
     pMap.ClearSelection()
     pMxDoc.UpdateContents()
     pMxDoc.ActiveView.Refresh()    
@@ -297,12 +288,7 @@ elif str(removeCheck) == 'true':
         arcpy.DeleteFeatures_management("Adjacents")
 
         # Clear selection and refresh map
-        pApp = GetApp()
-        pDoc = pApp.Document
-        pMxDoc = CType(pDoc, comtypes.gen.esriArcMapUI.IMxDocument)
-        pMap = pMxDoc.FocusMap
-        pMap.ClearSelection()
-        pMxDoc.ActiveView.Refresh()
+        clearRefresh()
     # Save MXD	
     mxd.save()
     
@@ -357,9 +343,6 @@ elif str(addCheck) == 'true':
     # Add selected parcels from Tax Parcels layer to Adjacents_add layer  
     arcpy.CopyFeatures_management(tax_parcels, Adjacents_add, "", "0", "0", "0")
     
-    # Create new fields for labeling (key numbering) - see function above
-    keyNumber()
-   
     # Execute Describe and if some parcels have been selected, then execute CopyFeatures and Append_management to add the selected parcels.
     # Add selected parcels from Tax Parcels layer to Adjacents_add layer  
     adjacents_add = arcpy.mapping.Layer(Adjacents_add)
@@ -369,7 +352,6 @@ elif str(addCheck) == 'true':
     desc = arcpy.Describe(adjacents_add)
     if  int(str(len(desc.fidSet.split(";")))) > 0:
         arcpy.Append_management(adjacents_add,"Adjacents")
-        arcpy.ApplySymbologyFromLayer_management("Adjacents", adjacent_green)
 	
 	# Remove the Adjacents_add layer (temporary layer to hold parcels to add)
         for lyr in arcpy.mapping.ListLayers(mxd, "*",df):
@@ -379,20 +361,15 @@ elif str(addCheck) == 'true':
         arcpy.Delete_management(Adjacents_add)
 	
 	# Set zoom level - 300 foot buffer around Adjacents
-        arcpy.Buffer_analysis("Adjacents",zoom_to_buffer,"300 Feet","FULL","ROUND","NONE","#")
+        arcpy.Buffer_analysis("Adjacents",zoom_to_buffer,"300 Feet","FULL","ROUND","ALL","#")
         bufferZoom = arcpy.mapping.Layer(zoom_to_buffer)
         ext = bufferZoom.getExtent()
         df.extent = ext
     
-	# Clear selection
-        pApp = GetApp()
-        pDoc = pApp.Document
-        pMxDoc = CType(pDoc, comtypes.gen.esriArcMapUI.IMxDocument)
-        pMap = pMxDoc.FocusMap
-        pMap.ClearSelection()
-        pMxDoc.ActiveView.Refresh()
+	# Refresh Table of Contents and Clear selection
+	arcpy.RefreshTOC()
+        clearRefresh()
 	
     # Save MXD	
     mxd.save()	
-	
 	

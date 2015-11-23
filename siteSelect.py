@@ -5,12 +5,11 @@
 
 # Import libraries
 import arcpy
-import pythonaddins
-import win32ui, win32con, win32gui, ctypes
 import comtypes
 import comtypes.client
 import os
 import sys
+from win32com.shell import shell, shellcon
 
 # Import ArcObjects modules
 comtypes.client.GetModule(r'C:\Program Files (x86)\ArcGIS\Desktop10.2\com\esriGeometry.olb')
@@ -30,7 +29,7 @@ comtypes.client.GetModule(r'C:\Program Files (x86)\ArcGIS\Desktop10.2\com\esriAr
 
 # METHODS
 
-# Methods to run ArcObjects (used for Clear Selection)
+# Methods to run ArcObjects (used for Clear selection and Set symbology)
 # courtesy of http://www.pierssen.com/arcgis10/upload/python/snippets102.py
 
 # Used to create a new object using a defined interface
@@ -55,7 +54,7 @@ def CType(obj, interface):
       return None
    
 def CLSID(MyClass):
-    #Return CLSID of MyClass as string
+    # Return CLSID of MyClass as string
     return str(MyClass._reg_clsid_)
 
 # Get current ArcMap session
@@ -86,6 +85,11 @@ def GetApp(app="ArcMap"):
 # Set Site parcel symbology
 def setSiteSymbology():
     # Cast objects
+    pApp = GetApp()
+    pDoc = pApp.Document
+    pMxDoc = CType(pDoc, comtypes.gen.esriArcMapUI.IMxDocument)
+    pMap = pMxDoc.FocusMap
+    
     pFact = CType(pApp, comtypes.gen.esriFramework.IObjectFactory)
    
     # Get Site layer
@@ -138,27 +142,38 @@ def setSiteSymbology():
     # Apply the renderer to the layer
     pGeoFeatureLayer.Renderer = pSimpleRenderer
     
+# Clear selection and Refresh map
+def clearRefresh():
+    pApp = GetApp()
+    pDoc = pApp.Document
+    pMxDoc = CType(pDoc, comtypes.gen.esriArcMapUI.IMxDocument)
+    pMap = pMxDoc.FocusMap
+    pMap.ClearSelection()
+    pMxDoc.ActiveView.Refresh()    
   
 # VARIABLES
 
 # Global variables:
 tax_parcels = "Tax Parcels - Mailer"
 
-site_rose = "W:/GIS_Mailer/new_mailer_toolbar/Site_color_rose.lyr"             # contains symbology (color) for Site parcel layer
-adjacent_green = "W:/GIS_Mailer/new_mailer_toolbar/Adjacent_color_green.lyr"   # contains symbology (color) for Adjacent parcel layer
-zoom_to_buffer = "W:/GIS_Mailer/new_mailer_toolbar/Site_buffer_700ft.shp"      # buffer around Site parcel(s) used to 
-
 # Initialize variables
 Site_shp = ""                                                                  # Site parcel shapefile
 Site_add = ""                                                                  # new layer shapefile with new Site parcels to be added 
 Adjacents_shp = ""                                                             # Adjacent parcel shapefile
+zoom_to_buffer = ""                                                            # buffer around Site parcel(s) used to set zoom level
 
 #-------------------------------------------------------------------------------
 
 
 
 # Set the workspace
-arcpy.env.workspace = "W:\GIS_Mailer\new_mailer_toolbar"
+mailerPath = shell.SHGetFolderPath(0, shellcon.CSIDL_PERSONAL, None, 0) + "\\" + "Mailer_files"
+
+if arcpy.Exists(mailerPath):
+    arcpy.env.workspace = mailerPath
+else:
+    arcpy.CreateFolder_management(shell.SHGetFolderPath(0, shellcon.CSIDL_PERSONAL, None, 0), "Mailer_files")
+    arcpy.env.workspace = mailerPath
 
 # Get access to the current mxd 
 mxd=arcpy.mapping.MapDocument("CURRENT") 
@@ -172,19 +187,21 @@ mxd.activeView = df
 # check to see if new case folder and files has already been created (for the first time); if not, then create them
 for lyr in arcpy.mapping.ListLayers(mxd,"*",df):
     if lyr.name == "Subject Parcels" or lyr.name == "Subject Parcel" or lyr.name == "Site":
-        isCopy = lyr.dataSource         # is this a copy of the original Site shapefile for this site?
+        isCopy = lyr.dataSource                                                            # is this a copy of the original Site shapefile for this site?
        
         if "Case" not in isCopy and "case" not in isCopy:                                  # check to see if the directory containing the layers contains any variation of "case"; if not, then save it in memory
-	    Site_shp = "W:/GIS_Mailer/new_mailer_toolbar/Site.shp"                         # Site parcel shapefile
-            Site_add = "W:/GIS_Mailer/new_mailer_toolbar/Site_add.shp"                     # new layer shapefile with new Site parcels to be added 
-            Adjacents_shp = "W:/GIS_Mailer/new_mailer_toolbar/Adjacents.shp"               # Adjacent parcel shapefile
+	    Site_shp = mailerPath + "\\Site.shp"                                           # Site parcel shapefile
+            Site_add = mailerPath + "\\Site_add.shp"                                       # new layer shapefile with new Site parcels to be added 
+            Adjacents_shp = mailerPath + "\\Adjacents.shp"                                 # Adjacent parcel shapefile
+	    zoom_to_buffer = mailerPath + "\\zoom_buffer.shp"                              # buffer around Site parcel(s) used to set zoom level
 	    
 	else:
 	    dirNew = lyr.workspacePath                               # if "case" is in the directory path, then save it to that directory
             Site_shp = dirNew + "\\Site.shp"                         # Site parcel shapefile
             Site_add = dirNew + "\\Site_add.shp"                     # new layer shapefile with new Site parcels to be added 
             Adjacents_shp = dirNew + "\\Adjacents.shp"               # Adjacent parcel shapefile
-	
+	    zoom_to_buffer = dirNew + "\\zoom_buffer.shp"            # buffer around Site parcel(s) used to set zoom level
+	    
 	
 # Get user input for parameters:  GPIN (parcel ID), Add and Remove site parcel check boxes (boolean, T/F)
 parcel_id = arcpy.GetParameterAsText(0)
@@ -198,12 +215,7 @@ addCheck = arcpy.GetParameterAsText(2)
 if not (str(removeCheck) == 'true') and not (str(addCheck) == 'true'):
 
     # Clear selection (using ArcObjects) and refresh map
-    pApp = GetApp()
-    pDoc = pApp.Document
-    pMxDoc = CType(pDoc, comtypes.gen.esriArcMapUI.IMxDocument)
-    pMap = pMxDoc.FocusMap
-    pMap.ClearSelection()
-    pMxDoc.ActiveView.Refresh()   
+    clearRefresh()   
     
     # GPIN input processing (Tool Validator)
     # If GPIN contains dashes, remove them so that it can be classified as int (see Tool Validator code)
@@ -257,6 +269,10 @@ if not (str(removeCheck) == 'true') and not (str(addCheck) == 'true'):
     df.extent = ext
 
     # Clear selection (using ArcObjects) and refresh map
+    pApp = GetApp()
+    pDoc = pApp.Document
+    pMxDoc = CType(pDoc, comtypes.gen.esriArcMapUI.IMxDocument)
+    pMap = pMxDoc.FocusMap
     pMap.ClearSelection()
     pMxDoc.UpdateContents()
     pMxDoc.ActiveView.Refresh()    
@@ -274,12 +290,7 @@ elif str(removeCheck) == 'true':
 	arcpy.DeleteFeatures_management("Site")
 
         # Clear selection and refresh map
-        pApp = GetApp()
-        pDoc = pApp.Document
-        pMxDoc = CType(pDoc, comtypes.gen.esriArcMapUI.IMxDocument)
-        pMap = pMxDoc.FocusMap
-        pMap.ClearSelection()
-        pMxDoc.ActiveView.Refresh()
+        clearRefresh()
     # Save MXD	
     mxd.save()	
 
@@ -349,12 +360,7 @@ elif str(addCheck) == 'true':
         df.extent = ext
 	
 	# Clear selection
-        pApp = GetApp()
-        pDoc = pApp.Document
-        pMxDoc = CType(pDoc, comtypes.gen.esriArcMapUI.IMxDocument)
-        pMap = pMxDoc.FocusMap
-        pMap.ClearSelection()
-        pMxDoc.ActiveView.Refresh()
+        clearRefresh()
 	
     # Save MXD	
     mxd.save()
