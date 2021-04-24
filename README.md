@@ -12,6 +12,6 @@ Allows for addition and removal of adjacent parcels.
 Assigns adjacents a green color (using ArcObjects).  
 
 # createLayout.py
-Creates a map in the layout view showing site and adjacent parcels.
-Includes title and legend.
-Can be exported as PDF or printed.
+Creates a map in the layout view showing site and adjacent parcels.       
+Includes title and legend.          
+Can be exported as PDF or printed. 
